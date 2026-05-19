@@ -68,7 +68,8 @@ async function fetchVacancies(keyword: string): Promise<Vacancy[]> {
     try {
         await page.goto(`https://robota.ua/zapros/${encodeURIComponent(keyword)}/ukraine`, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await page.waitForTimeout(10000);
-
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await page.waitForTimeout(5000);
         const cards = await page.$$('alliance-vacancy-card-desktop, cv-vacancy-card, a[href*="/vacancy/"]');
         
         for (const card of cards) {
