@@ -1,0 +1,25 @@
+name: Job Matcher Agent
+
+on:
+  # Добавляем возможность запуска вручную
+  workflow_dispatch:
+  
+  # Добавляем расписание (Cron-синтаксис)
+  schedule:
+    # Запуск каждый день в 09:00 по UTC (можно поменять на любое время)
+    - cron: '0 9 * * *'
+    - cron: '0 15 * * *'  # В 15:00
+    - cron: '0 21 * * *'  # В 21:00
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npx playwright install chromium
+      - run: npx ts-node index.ts
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
