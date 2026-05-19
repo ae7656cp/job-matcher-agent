@@ -1,22 +1,63 @@
 import OpenAI from 'openai';
 import { chromium } from 'playwright';
 import * as dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+// Принудительно загружаем .env из папки проекта
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+
+const MY_PROFILE = {
+    role: "Junior Manual QA Engineer / Junior QA Automation",
+    experience: "Без коммерческого опыта (Разработка учебных проектов и систем автоматизации)",
+    skills: ["Playwright", "JavaScript", "TypeScript", "Postman", "SQL", "Jira", "GitHub", "Telegram Bot"]
+};
+
+// Проверяем наличие ключа перед созданием клиента
+const apiKey = process.env.OPENAI_API_KEY;
+if (!apiKey) {
+    console.error("❌ ОШИБКА: Ключ API не найден в переменных окружения!");
+    process.exit(1);
+}
+
+const client = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.groq.com/openai/v1',
+});
 
 interface Vacancy {
     id: string;
     title: string;
-    description: string;
     company: string;
     link: string;
+    description: string;
 }
 
-// ... (инициализация клиента OpenAI остается прежней)
+async function getAIAnalysis(description: string): Promise<string> {
+    try {
+        // Мы обновляем промпт, чтобы потребовать процент соответствия
+        const prompt = `
+        Ты HR-ассистент. Проанализируй вакансию на основе профиля кандидата.
+        Мой профиль: ${JSON.stringify(MY_PROFILE)}
+        Вакансия: ${description}
+        
+        ОТВЕТЬ СТРОГО В ТАКОМ ФОРМАТЕ:
+        1. Соответствие: [X]%
+        2. Анализ: [Кратко 2 предложения: сильные стороны и чего не хватает]
+        `;
+
+        const completion = await client.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            messages: [{ role: "user", content: prompt }],
+        });
+        
+        return completion.choices[0].message.content || "Нет ответа";
+    } catch (error: any) {
+        return "Ошибка ИИ: " + (error.message || "произошла ошибка");
+    }
+}
 
 async function fetchVacancies(keyword: string): Promise<Vacancy[]> {
-    console.log(`📡 Поиск вакансий по запросу: "${keyword}"...`);
-    
+    console.log(`📡 Поиск по запросу: "${keyword}"...`);
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
@@ -25,32 +66,23 @@ async function fetchVacancies(keyword: string): Promise<Vacancy[]> {
     const uniqueVacancies = new Map<string, Vacancy>();
 
     try {
-        const searchUrl = `https://robota.ua/zapros/${encodeURIComponent(keyword)}/ukraine`;
-        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await page.waitForTimeout(8000);
+        await page.goto(`https://robota.ua/zapros/${encodeURIComponent(keyword)}/ukraine`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(10000);
 
-        const cards = await page.$$('alliance-vacancy-card-desktop, cv-vacancy-card, [data-sidebar-id], a[href*="/vacancy/"]');
+        const cards = await page.$$('alliance-vacancy-card-desktop, cv-vacancy-card, a[href*="/vacancy/"]');
         
         for (const card of cards) {
-            // 1. Получаем ТОЛЬКО заголовок из h2, принудительно беря только первую строку
-            const rawTitle = await card.$eval('h2', el => (el as HTMLElement).innerText.split('\n')[0].trim()).catch(() => 'Без названия');
-            
-            // 2. Получаем полный текст отдельно для ИИ
-            const fullDescription = await card.innerText().catch(() => '');
-            
+            const rawTitle = await card.$eval('h2', el => el.textContent || '').catch(() => 'Без названия');
+            const description = await card.innerText().catch(() => '');
             const linkRaw = await card.$eval('a', el => el.getAttribute('href') || '').catch(() => '');
-            const fullLink = linkRaw.startsWith('http') ? linkRaw : `https://robota.ua${linkRaw}`;
             const company = await card.$eval('a[href*="/company/"], .company', el => el.textContent || 'Компания скрыта').catch(() => 'Компания скрыта');
 
+            const fullLink = linkRaw.startsWith('http') ? linkRaw : `https://robota.ua${linkRaw}`;
             const normalizedTitle = rawTitle.toLowerCase().trim();
 
-            if (rawTitle !== 'Без названия' && !uniqueVacancies.has(normalizedTitle)) {
+            if (rawTitle.trim() !== 'Без названия' && !uniqueVacancies.has(normalizedTitle)) {
                 uniqueVacancies.set(normalizedTitle, { 
-                    id: Math.random().toString(), 
-                    title: rawTitle,
-                    description: fullDescription.replace(/\n/g, ' ').trim(), // Текст для ИИ очищен от переносов
-                    company: company.trim(), 
-                    link: fullLink 
+                    id: Math.random().toString(), title: rawTitle.trim(), company: company.trim(), link: fullLink, description 
                 });
             }
         }
@@ -63,27 +95,14 @@ async function fetchVacancies(keyword: string): Promise<Vacancy[]> {
 }
 
 async function startAgent(): Promise<void> {
-    const vacancies = await fetchVacancies ("QA Engineer");
+    const vacancies = await fetchVacancies("QA Engineer");
+    console.log(`✅ Найдено: ${vacancies.length}. Начинаю анализ...`);
     
-    if (vacancies.length === 0) {
-        console.log("⚠️ Вакансии не найдены.");
-        return;
-    }
-
-    console.log(`✅ Найдено: ${vacancies.length}.\n`);
-
     for (const v of vacancies) {
-        console.log(`=========================================`);
-        console.log(`💼 ВАКАНСИЯ: ${v.title}`);
-        console.log(`🏢 КОМПАНИЯ: ${v.company}`);
-        
-        // Добавляем КРАТКОЕ описание (обрезаем до 200 символов, чтобы не было "каши")
-        const shortDesc = v.description.length > 200 
-            ? v.description.substring(0, 200) + "..." 
-            : v.description;
-        console.log(`📝 ОПИСАНИЕ: ${shortDesc.replace(/\n/g, ' ')}`); 
-        
-        console.log(`🔗 ССЫЛКА: ${v.link}`);
+        console.log(`\n💼 ${v.title} | ${v.company}`);
+        const analysis = await getAIAnalysis(v.description);
+        console.log(`🧠 АНАЛИЗ: ${analysis}`);
+        console.log(`🔗 ${v.link}`);
     }
 }
 
