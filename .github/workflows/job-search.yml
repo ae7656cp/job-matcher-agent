@@ -8,8 +8,11 @@ on:
   schedule:
     # Запуск каждый день в 09:00 по UTC (можно поменять на любое время)
     - cron: '0 9 * * *'
-    - cron: '0 15 * * *'  
-    - cron: '0 21 * * *'  
+    - cron: '0 14 * * *'
+    - cron: '0 15 * * *'
+    - cron: '0 16 * * *'
+    - cron: '0 17 * * *'
+    - cron: '0 18 * * *'  
 jobs:
   run-agent:
     runs-on: ubuntu-latest
