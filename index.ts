@@ -7,7 +7,7 @@ import path from 'path';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const MY_PROFILE = {
-    role: "Junior Manual QA / Junior QA Engineer",
+    role: "Junior Manual QA and Junior QA Engineer",
     experience: "Без коммерческого опыта (Разработка учебных проектов и систем автоматизации)",
     skills: ["Playwright", "JavaScript", "TypeScript", "Postman", "SQL", "Jira", "GitHub", "Telegram Bot"]
 };
